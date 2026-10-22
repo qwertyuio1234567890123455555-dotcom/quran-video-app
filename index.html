@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>موقع السعد للقرآن الكريم - لوحة التحكم الاحترافية</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #07130c;
+            --card-bg: #0f2619;
+            --primary: #10b981;
+            --accent: #f59e0b;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --border: #1e3a29;
+        }
+        body {
+            font-family: 'Cairo', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0; padding: 30px;
+            display: flex; justify-content: center; align-items: center; min-height: 100vh;
+        }
+        .wrapper {
+            width: 100%; max-width: 800px;
+            background: var(--card-bg); border: 1px solid var(--border);
+            border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); overflow: hidden;
+        }
+        .hero {
+            background: linear-gradient(135deg, #064e3b 0%, #022c22 100%);
+            padding: 35px 30px; text-align: center; border-bottom: 3px solid var(--accent);
+        }
+        .hero h1 { margin: 0; font-size: 32px; font-weight: 900; color: var(--accent); }
+        .hero p { margin: 10px 0 0; color: #d1fae5; font-size: 15px; }
+        .body-content { padding: 35px; }
+        .status-card {
+            background: rgba(16, 185, 129, 0.1); border: 1px solid var(--primary);
+            padding: 15px 20px; border-radius: 14px; display: flex;
+            justify-content: space-between; align-items: center; margin-bottom: 25px;
+        }
+        .status-card span { font-weight: 600; color: #34d399; }
+        .btn-auth {
+            background: #2563eb; color: white; border: none; padding: 10px 20px;
+            border-radius: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;
+        }
+        .btn-auth:hover { background: #1d4ed8; }
+        .section-title {
+            font-size: 18px; font-weight: 700; color: var(--accent);
+            margin-bottom: 15px; border-right: 4px solid var(--accent); padding-right: 10px;
+        }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; color: #e5e7eb; }
+        select, input {
+            width: 100%; background: #07130c; border: 1px solid var(--border);
+            color: white; padding: 14px; border-radius: 12px; font-family: 'Cairo', sans-serif;
+            font-size: 15px; box-sizing: border-box; outline: none; transition: 0.2s;
+        }
+        select:focus, input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(16,185,129,0.2); }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .checkbox-group {
+            display: flex; align-items: center; gap: 10px; background: #07130c;
+            border: 1px solid var(--border); padding: 14px; border-radius: 12px;
+        }
+        .checkbox-group input { width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer; }
+        .actions { display: flex; gap: 15px; margin-top: 30px; }
+        .btn {
+            flex: 1; padding: 16px; border: none; border-radius: 14px;
+            font-size: 16px; font-weight: 700; cursor: pointer; font-family: 'Cairo', sans-serif; transition: 0.2s;
+        }
+        .btn-save { background: #374151; color: white; }
+        .btn-save:hover { background: #4b5563; }
+        .btn-publish {
+            background: linear-gradient(135deg, var(--accent), #d97706);
+            color: #07130c; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+        }
+        .btn-publish:hover { opacity: 0.9; transform: translateY(-1px); }
+        #response-box { margin-top: 25px; padding: 16px; border-radius: 12px; text-align: center; font-weight: 600; display: none; }
+        .success { background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid var(--primary); }
+        .error { background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid #ef4444; }
+        .info { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <div class="hero">
+        <h1>🕌 موقع السعد للقرآن الكريم</h1>
+        <p>نظام التوليد الذكي بالخلفيات الضبابية والنشر المتعدد</p>
+    </div>
+
+    <div class="body-content">
+        <div class="status-card">
+            <div>
+                <div style="font-size: 13px; color: var(--text-muted);">القناة المرتبطة حالياً:</div>
+                <span id="channelStatus">جاري الفحص...</span>
+            </div>
+            <button class="btn-auth" onclick="linkChannel()">🔑 تغيير القناة</button>
+        </div>
+
+        <div class="section-title">إعدادات النشر وأنواع الفيديوهات</div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label>🎬 نوع النشر المطلوب:</label>
+                <select id="videoType" onchange="toggleDurationView()">
+                    <option value="short">فيديو قصير فقط (Shorts)</option>
+                    <option value="long">فيديو طويل فقط</option>
+                    <option value="both">قصير + طويل معاً</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="shortGroup">
+                <label>⏱️ مدة الفيديو القصير (ثواني):</label>
+                <input type="number" id="shortDuration" value="30" min="15" max="60">
+            </div>
+
+            <div class="form-group" id="longGroup" style="display:none;">
+                <label>⏱️ مدة الفيديو الطويل (دقائق):</label>
+                <input type="number" id="longDuration" value="10" min="1" max="180">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>🏷️ خيارات العلامة المائية:</label>
+            <div class="checkbox-group">
+                <input type="checkbox" id="watermarkToggle" checked>
+                <label for="watermarkToggle" style="margin:0; cursor:pointer;">إظهار شعار "موقع السعد للقرآن الكريم"</label>
+            </div>
+        </div>
+
+        <div class="section-title">الجدولة اليومية التلقائية</div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label>📅 عدد الدورات يومياً:</label>
+                <input type="number" id="dailyCount" value="1" min="1" max="10">
+            </div>
+            <div class="form-group">
+                <label>⏰ موعد النشر التلقائي:</label>
+                <input type="time" id="scheduleTime" value="18:00">
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-save" onclick="saveSettings()">💾 حفظ الإعدادات</button>
+            <button class="btn btn-publish" onclick="testPublishNow()">🚀 توليد ونشر الآن</button>
+        </div>
+
+        <div id="response-box"></div>
+    </div>
+</div>
+
+<script>
+    window.onload = async function() {
+        try {
+            const res = await fetch("http://localhost:5000/api/user_info");
+            const data = await res.json();
+            if(data.connected) {
+                document.getElementById("channelStatus").innerText = "✅ متصل بقناة: " + data.channel_title;
+            } else {
+                document.getElementById("channelStatus").innerText = "⚠️ غير متصل - اضغط لربط قناتك";
+            }
+        } catch(e) {
+            document.getElementById("channelStatus").innerText = "⚠️ السيرفر غير متصل";
+        }
+    };
+
+    function toggleDurationView() {
+        const type = document.getElementById("videoType").value;
+        if(type === "short") {
+            document.getElementById("shortGroup").style.display = "block";
+            document.getElementById("longGroup").style.display = "none";
+        } else if(type === "long") {
+            document.getElementById("shortGroup").style.display = "none";
+            document.getElementById("longGroup").style.display = "block";
+        } else {
+            document.getElementById("shortGroup").style.display = "block";
+            document.getElementById("longGroup").style.display = "block";
+        }
+    }
+
+    function linkChannel() {
+        window.location.href = "http://localhost:5000/auth/google";
+    }
+
+    function getSettingsPayload() {
+        return {
+            type: document.getElementById("videoType").value,
+            short_duration: document.getElementById("shortDuration").value,
+            long_duration: document.getElementById("longDuration").value,
+            daily_count: document.getElementById("dailyCount").value,
+            schedule_time: document.getElementById("scheduleTime").value,
+            watermark: document.getElementById("watermarkToggle").checked
+        };
+    }
+
+    async function saveSettings() {
+        showMsg("⏳ جاري حفظ الإعدادات...", "info");
+        try {
+            const res = await fetch("http://localhost:5000/api/save_settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(getSettingsPayload())
+            });
+            const data = await res.json();
+            if(res.ok) {
+                showMsg("✅ " + data.message, "success");
+            } else {
+                showMsg("❌ " + data.error, "error");
+            }
+        } catch(e) {
+            showMsg("❌ تعذر حفظ البيانات.", "error");
+        }
+    }
+
+    async function testPublishNow() {
+        showMsg("🚀 جاري حفظ الإعدادات وتوليد ونشر الفيديو بالخلفية الضبابية...", "info");
+        try {
+            // إرسال الإعدادات الحالية مباشرة مع طلب النشر لتلاوة أي خطأ في عدم الحفظ
+            const res = await fetch("http://localhost:5000/api/test_publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(getSettingsPayload())
+            });
+            const data = await res.json();
+            if(res.ok) {
+                showMsg("🎉 " + data.message, "success");
+            } else {
+                showMsg("❌ " + data.error, "error");
+            }
+        } catch(e) {
+            showMsg("❌ خطأ أثناء الاتصال بالسيرفر.", "error");
+        }
+    }
+
+    function showMsg(text, type) {
+        const box = document.getElementById("response-box");
+        box.style.display = "block";
+        box.className = type;
+        box.innerText = text;
+    }
+</script>
+
+</body>
+</html>

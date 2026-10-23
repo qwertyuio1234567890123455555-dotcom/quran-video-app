@@ -16,10 +16,8 @@ import imageio_ffmpeg
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# السماح للاتصال المحلي/غير المشفر أثناء التطوير
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-# بيانات الاعتماد الخاصة بـ Google Console
 CLIENT_ID = '655750280827-ucv3jdsh0c8t515gd3ennafgvtj00a1l.apps.googleusercontent.com'
 CLIENT_SECRET = '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'
 SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
@@ -247,7 +245,7 @@ if 'ayah' not in st.session_state:
 if 'reciter_index' not in st.session_state:
     st.session_state.reciter_index = 0
 
-# ----------------- المعالجة التلقائية للرابط والتقاط Code -----------------
+# ----------------- المعالجة الآمنة لالتقاط Code ومسحه من الرابط -----------------
 
 query_params = st.query_params
 if 'code' in query_params and not st.session_state.user_creds:
@@ -275,19 +273,17 @@ if 'code' in query_params and not st.session_state.user_creds:
         c_title, c_thumb = get_channel_info(creds_dict)
         st.session_state.channel_title = c_title
         st.session_state.channel_thumb = c_thumb
-        
-        # تنظيف الرابط بعد الربط الناجح
+    except Exception:
+        pass
+    finally:
+        # مسح الكود من شريط العنوان فوراً لتفادي إعادة القراءة
         st.query_params.clear()
-        st.experimental_rerun()
-    except Exception as e:
-        st.error(f"حدث خطأ أثناء تأكيد حساب Google تلقائياً: {e}")
 
 # ----------------- قسم عرض/ربط القناة -----------------
 
 st.header("🔗 ربط القناة بـ Google OAuth")
 
 if st.session_state.user_creds:
-    # عرض اسم القناة وصورتها عند نجاح الربط
     st.markdown(f"""
         <div class="channel-box">
             <img src="{st.session_state.channel_thumb}" style="width:60px;height:60px;border-radius:50%;" alt="Avatar"/>
@@ -302,7 +298,7 @@ if st.session_state.user_creds:
         st.session_state.user_creds = None
         st.session_state.channel_title = ""
         st.session_state.channel_thumb = ""
-        st.experimental_rerun()
+        st.rerun()
 else:
     st.warning("⚠️ لم تقم بربط قناتك بعد. اضغط على الزر أدناه لربط قناتك مباشرة.")
     
@@ -389,7 +385,6 @@ if enable_schedule:
             st.error("يرجى ربط القناة أولاً لتشغيل الجدولة!")
         else:
             st.warning("⚠️ لا تغلق هذه الصفحة لتستمر الجدولة التلقائية أونلاين في العمل.")
-            progress_bar = st.progress(0)
             status_text = st.empty()
             
             while True:
@@ -402,7 +397,6 @@ if enable_schedule:
                 time_diff = (target_today - now).total_seconds()
                 status_text.info(f"⏳ الموعد القادم للنشر التلقائي: {target_today.strftime('%Y-%m-%d %H:%M:%S')} (متبقي {int(time_diff // 3600)} ساعة و {int((time_diff % 3600) // 60)} دقيقة)")
                 
-                # انتظار موعد النشر (متقطع كل دقيقة)
                 if time_diff > 60:
                     time.sleep(60)
                 else:
@@ -422,5 +416,5 @@ if enable_schedule:
                             st.session_state.ayah += consumed
                             st.session_state.reciter_index += 1
                     
-                    st.success("✅ اكتمل النشر اليومي بنجاح! سيتم الانتظار للموعد القادم...")
+                    st.success("✅ اكتمل النشر اليومي بنجاح!")
                     time.sleep(120)

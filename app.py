@@ -22,7 +22,6 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 CLIENT_ID = '655750280827-ucv3jdsh0c8t515gd3ennafgvtj00a1l.apps.googleusercontent.com'
 CLIENT_SECRET = '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'
 SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
-# استخدام redirect_uri المخصص للربط المستقر
 REDIRECT_URI = "https://quran-video-app-4nhpdndsvuas3yjbv4jhsj.streamlit.app/"
 
 RECITERS = [
@@ -247,9 +246,43 @@ if 'ayah' not in st.session_state:
 if 'reciter_index' not in st.session_state:
     st.session_state.reciter_index = 0
 
-# ----------------- قسم ربط القناة بـ OAuth المضمون -----------------
+# ----------------- قسم ربط القناة بـ Google OAuth المستقر -----------------
 
 st.header("🔗 ربط القناة (Google OAuth)")
+
+# التقاط الكود من رابط المتصفح تلقائياً فور العودة من جوجل
+query_params = st.query_params
+if "code" in query_params and not st.session_state.user_creds:
+    code_val = query_params["code"]
+    try:
+        flow = Flow.from_client_config(
+            {"web": {
+                "client_id": CLIENT_ID, 
+                "client_secret": CLIENT_SECRET, 
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth", 
+                "token_uri": "https://oauth2.googleapis.com/token"
+            }},
+            scopes=SCOPES, redirect_uri=REDIRECT_URI
+        )
+        # إيقاف التحقق من PKCE لتفادي خطأ code_verifier
+        flow.code_verifier = None
+        flow.fetch_token(code=code_val)
+        credentials = flow.credentials
+        
+        creds_dict = {
+            'token': credentials.token, 'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret, 'scopes': credentials.scopes
+        }
+        st.session_state.user_creds = creds_dict
+        
+        c_title, c_thumb = get_channel_info(creds_dict)
+        st.session_state.channel_title = c_title
+        st.session_state.channel_thumb = c_thumb
+        st.query_params.clear()
+        st.rerun()
+    except Exception as e:
+        st.query_params.clear()
 
 if st.session_state.user_creds:
     st.markdown(f"""
@@ -268,8 +301,6 @@ if st.session_state.user_creds:
         st.session_state.channel_thumb = ""
         st.rerun()
 else:
-    st.info("💡 اضغط على الزر أدناه لتسجيل الدخول بـ Google، ثم انسخ الكود والطبقه هنا:")
-    
     flow = Flow.from_client_config(
         {"web": {
             "client_id": CLIENT_ID, 
@@ -279,40 +310,12 @@ else:
         }},
         scopes=SCOPES, redirect_uri=REDIRECT_URI
     )
+    # إيقاف PKCE عند توليد رابط الدخول
+    flow.code_verifier = None
     auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
     
-    st.markdown(f'<a href="{auth_url}" target="_blank" style="display:block;text-align:center;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">1️⃣ اضغط هنا لفتح شاشة تسجيل الدخول بـ Google</a>', unsafe_allow_html=True)
-    
-    st.write("")
-    user_code = st.text_input("2️⃣ ألصق كود/رمز التوثيق المنسوخ من شريط العناوين أو شاشة جوجل هنا:")
-    
-    if st.button("3️⃣ تأكيد وربط القناة الآن"):
-        if user_code.strip():
-            try:
-                # تنظيف الكود إذا أطرافه بها مساحات
-                clean_code = user_code.strip()
-                if "code=" in clean_code:
-                    clean_code = clean_code.split("code=")[1].split("&")[0]
-                
-                flow.fetch_token(code=clean_code)
-                credentials = flow.credentials
-                
-                creds_dict = {
-                    'token': credentials.token, 'refresh_token': credentials.refresh_token,
-                    'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
-                    'client_secret': credentials.client_secret, 'scopes': credentials.scopes
-                }
-                st.session_state.user_creds = creds_dict
-                
-                c_title, c_thumb = get_channel_info(creds_dict)
-                st.session_state.channel_title = c_title
-                st.session_state.channel_thumb = c_thumb
-                st.success(f"تم ربط القناة بنجاح: {c_title}")
-                st.rerun()
-            except Exception as e:
-                st.error(f"الكود غير صحيح أو انتهت صلاحيته. يُرجى الضغط على زر الدخول مجدداً ونسخ الكود الجديد. التفاصيل: {e}")
-        else:
-            st.warning("يرجى إدخال الكود أولاً.")
+    st.markdown(f'<a href="{auth_url}" target="_self" style="display:block;text-align:center;padding:14px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:18px;">🔑 اضغط هنا لتسجيل الدخول بـ Google وربط القناة تلقائياً</a>', unsafe_allow_html=True)
+    st.caption("عند الضغط، ستنقل لخوادم جوجل لمنح الصلاحية، وسيعود بك الموقع تلقائياً وقناتك مرتبطة بنجاح.")
 
 st.markdown("---")
 

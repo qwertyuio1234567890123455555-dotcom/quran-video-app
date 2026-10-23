@@ -1,12 +1,15 @@
 import os
-import time
 import json
+import threading
+import time
+import subprocess
+import traceback
 import math
 import random
-import datetime
-import subprocess
+from datetime import datetime
 import requests
-import streamlit as st
+from flask import Flask, redirect, url_for, session, request, jsonify
+from flask_cors import CORS
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -18,22 +21,52 @@ from bidi.algorithm import get_display
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
+app = Flask(__name__)
+app.secret_key = 'quran_saad_super_secret_key'
+CORS(app, supports_credentials=True)
+
 CLIENT_ID = '655750280827-ucv3jdsh0c8t515gd3ennafgvtj00a1l.apps.googleusercontent.com'
 CLIENT_SECRET = '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'
-SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
-REDIRECT_URI = "https://quran-video-app-4nhpdndsvuas3yjbv4jhsj.streamlit.app/"
+REDIRECT_URI = 'http://localhost:5000/oauth2callback'
 
-RECITERS = {
-    "الشيخ مشاري العفاسي": "Alafasy_128kbps",
-    "الشيخ عبد الرحمن السديس": "Abdurrahmaan_As-Sudais_192kbps",
-    "الشيخ ماهر المعيقلي": "MaherAlMuaiqly128kbps",
-    "الشيخ سعود الشريم": "Saood_ash-Shuraym_128kbps",
-    "الشيخ ناصر القطامي": "Nasser_Alqatami_128kbps"
-}
+SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+
+STATE_FILE = 'state.json'
+SETTINGS_FILE = 'settings.json'
+TOKEN_FILE = 'token.json'
+
+RECITERS = [
+    {"name": "الشيخ مشاري العفاسي", "folder": "Alafasy_128kbps"},
+    {"name": "الشيخ عبد الرحمن السديس", "folder": "Abdurrahmaan_As-Sudais_192kbps"},
+    {"name": "الشيخ ماهر المعيقلي", "folder": "MaherAlMuaiqly128kbps"},
+    {"name": "الشيخ سعود الشريم", "folder": "Saood_ash-Shuraym_128kbps"},
+    {"name": "الشيخ ناصر القطامي", "folder": "Nasser_Alqatami_128kbps"}
+]
+
+def load_json(filepath, default):
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return default
+    return default
+
+def save_json(filepath, data):
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def get_saved_credentials():
+    if os.path.exists(TOKEN_FILE):
+        creds_data = load_json(TOKEN_FILE, None)
+        if creds_data:
+            return Credentials(**creds_data)
+    return None
 
 def format_arabic_text(text):
     reshaped_text = arabic_reshaper.reshape(text)
-    return get_display(reshaped_text)
+    bidi_text = get_display(reshaped_text)
+    return bidi_text
 
 def get_surah_info(surah_num):
     try:
@@ -56,9 +89,17 @@ def get_ayah_text(surah, ayah):
         pass
     return ""
 
-def generate_animated_background(width, height, surah_name, ayahs_text_list, reciter_name, show_watermark, session_id):
-    frame_dir = os.path.join(os.getcwd(), f"frames_{session_id}")
-    os.makedirs(frame_dir, exist_ok=True)
+def generate_animated_background(width, height, surah_name, ayahs_text_list, reciter_name, show_watermark, prefix=""):
+    frame_dir = f"frames_{prefix}"
+    if os.path.exists(frame_dir):
+        for file in os.listdir(frame_dir):
+            if file.endswith(".png"):
+                try:
+                    os.remove(os.path.join(frame_dir, file))
+                except:
+                    pass
+    else:
+        os.makedirs(frame_dir, exist_ok=True)
     
     combined_ayahs_raw = " ".join(ayahs_text_list)
     title_text = format_arabic_text(f"{surah_name}")
@@ -67,28 +108,43 @@ def generate_animated_background(width, height, surah_name, ayahs_text_list, rec
     footer_text = format_arabic_text("موقع السعد للقرآن الكريم")
 
     try:
-        font_title = ImageFont.truetype("arial.ttf", int(height * 0.055))
-        font_ayah = ImageFont.truetype("arial.ttf", int(height * 0.045))
-        font_reciter = ImageFont.truetype("arial.ttf", int(height * 0.038))
+        font_size_title = int(height * 0.055)
+        font_size_ayah = int(height * 0.045)
+        font_size_reciter = int(height * 0.038)
+        
+        font_title = ImageFont.truetype("arial.ttf", font_size_title)
+        font_ayah = ImageFont.truetype("arial.ttf", font_size_ayah)
+        font_reciter = ImageFont.truetype("arial.ttf", font_size_reciter)
     except:
         font_title = ImageFont.load_default()
         font_ayah = ImageFont.load_default()
         font_reciter = ImageFont.load_default()
 
+    total_frames = 30
     stars = [(random.randint(0, width), random.randint(0, height), random.randint(1, 3)) for _ in range(30)]
 
-    for i in range(30):
+    for i in range(total_frames):
         img = Image.new("RGB", (width, height), color="#050b14")
         draw = ImageDraw.Draw(img)
-        
+
+        for y_wave in range(0, height, 30):
+            offset = int(math.sin(i * 0.2 + y_wave * 0.03) * 15)
+            r = 5 + (y_wave % 10)
+            g = 20 + ((y_wave * 2) % 40) + offset
+            b = 40 + (y_wave % 30)
+            draw.rectangle([0, y_wave, width, y_wave + 30], fill=(r, g, b))
+
         for x, y, size in stars:
             brightness = int(120 + 135 * math.sin(i * 0.3 + x))
             draw.ellipse([x, y, x + size, y + size], fill=(brightness, brightness, 255))
 
         margin = int(width * 0.03)
         draw.rectangle([margin, margin, width - margin, height - margin], outline="#d4af37", width=4)
+        draw.rectangle([margin + 8, margin + 8, width - (margin + 8), height - (margin + 8)], outline="#38bdf8", width=1)
 
-        cx, cy = width // 2, height // 2
+        cx = width // 2
+        cy = height // 2
+
         draw.text((cx, int(height * 0.22)), title_text, fill="#facc15", anchor="mm", font=font_title)
         draw.text((cx, cy), ayah_text, fill="#ffffff", anchor="mm", font=font_ayah)
         draw.text((cx, int(height * 0.78)), reciter_text, fill="#38bdf8", anchor="mm", font=font_reciter)
@@ -96,318 +152,300 @@ def generate_animated_background(width, height, surah_name, ayahs_text_list, rec
         if show_watermark:
             draw.text((cx, height - int(height * 0.08)), footer_text, fill="#94a3b8", anchor="mm", font=font_reciter)
 
-        img.save(os.path.join(frame_dir, f"frame_{i:04d}.png"))
+        frame_path = os.path.join(frame_dir, f"frame_{i:04d}.png")
+        img.save(frame_path)
 
-def generate_quran_video(surah, start_ayah, num_ayahs, is_short, duration, show_watermark, reciter_name, reciter_folder, session_id):
-    out_filename = f"output_{session_id}_{'short' if is_short else 'long'}.mp4"
-    out_path = os.path.join(os.getcwd(), out_filename)
-    audio_path = os.path.join(os.getcwd(), f"temp_audio_{session_id}.mp3")
+def generate_quran_video(surah, start_ayah, num_ayahs, is_short, duration, show_watermark, reciter_info, output_filename="output.mp4"):
+    audio_path = f"temp_audio_{'short' if is_short else 'long'}.mp3"
     width, height = (1080, 1920) if is_short else (1920, 1080)
+    prefix = "short" if is_short else "long"
 
     try:
         surah_name, total_surah_ayahs = get_surah_info(surah)
-        ayahs_text_list, audio_files = [], []
+        
+        ayahs_text_list = []
+        audio_files = []
         actual_consumed = 0
         
         for k in range(num_ayahs):
             current_a = start_ayah + k
             if current_a > total_surah_ayahs:
                 break
+            
             txt = get_ayah_text(surah, current_a)
             if txt:
                 ayahs_text_list.append(txt + f" ﴿{current_a}﴾ ")
             
-            a_url = f"https://everyayah.com/data/{reciter_folder}/{surah:03d}{current_a:03d}.mp3"
-            part_path = os.path.join(os.getcwd(), f"part_{session_id}_{k}.mp3")
-            r = requests.get(a_url, timeout=10)
-            if r.status_code == 200:
-                with open(part_path, 'wb') as f:
-                    f.write(r.content)
-                audio_files.append(part_path)
-                actual_consumed += 1
+            a_url = f"https://everyayah.com/data/{reciter_info['folder']}/{surah:03d}{current_a:03d}.mp3"
+            part_path = f"part_{prefix}_{k}.mp3"
+            try:
+                r = requests.get(a_url, timeout=10)
+                if r.status_code == 200:
+                    with open(part_path, 'wb') as f:
+                        f.write(r.content)
+                    audio_files.append(part_path)
+                    actual_consumed += 1
+            except:
+                pass
 
         if not audio_files:
-            return False, "فشل تحميل الصوتيات!", 0, None
+            return False, "فشل تحميل ملفات الصوت للآيات!", 0
 
         with open(audio_path, 'wb') as outfile:
             for fname in audio_files:
                 with open(fname, 'rb') as infile:
                     outfile.write(infile.read())
-                try: os.remove(fname)
-                except: pass
+                try:
+                    os.remove(fname)
+                except:
+                    pass
 
-        generate_animated_background(width, height, surah_name, ayahs_text_list, reciter_name, show_watermark, session_id)
+        generate_animated_background(width, height, surah_name, ayahs_text_list, reciter_info["name"], show_watermark, prefix=prefix)
 
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         dur_seconds = int(duration) if is_short else int(duration) * 60
 
+        frame_pattern = os.path.join(f"frames_{prefix}", "frame_%04d.png")
         cmd = [
-            ffmpeg_exe, "-y", "-framerate", "10", "-loop", "1",
-            "-i", os.path.join(os.getcwd(), f"frames_{session_id}", "frame_%04d.png"),
-            "-stream_loop", "-1", "-i", audio_path,
-            "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
-            "-t", str(dur_seconds), "-pix_fmt", "yuv420p", out_path
+            ffmpeg_exe, "-y",
+            "-framerate", "10",
+            "-loop", "1",
+            "-i", frame_pattern,
+            "-stream_loop", "-1",
+            "-i", audio_path,
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-t", str(dur_seconds),
+            "-pix_fmt", "yuv420p",
+            output_filename
         ]
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-            return True, (surah_name, actual_consumed), 0, out_path
-        return False, "فشل معالجة الفيديو", 0, None
-    except Exception as e:
-        return False, str(e), 0, None
 
-def upload_single_video(creds, video_path, video_title, description):
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            return False, "فشل دمج الفيديو بـ FFmpeg", 0
+        
+        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
+            return True, (surah_name, actual_consumed), 0
+        
+        return False, "لم يتم إنتاج ملف الفيديو", 0
+    except Exception as e:
+        traceback.print_exc()
+        return False, str(e), 0
+
+def upload_single_video(video_path, video_title, description):
+    credentials = get_saved_credentials()
+    if not credentials:
+        return False, "لا يوجد حساب يوتيوب مرتبط!"
     try:
-        credentials = Credentials(**creds)
         youtube = build('youtube', 'v3', credentials=credentials)
         body = {
-            'snippet': {'title': video_title, 'description': description, 'tags': ['Quran', 'القرآن الكريم'], 'categoryId': '22'},
-            'status': {'privacyStatus': 'public'}
+            'snippet': {
+                'title': video_title,
+                'description': description,
+                'tags': ['Quran', 'القرآن الكريم', 'تلاوات خاشعة', 'موقع السعد'],
+                'categoryId': '22'
+            },
+            'status': {
+                'privacyStatus': 'public'
+            }
         }
         media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-        request_upload = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+        request_upload = youtube.videos().insert(
+            part='snippet,status',
+            body=body,
+            media_body=media
+        )
         response = None
         while response is None:
-            _, response = request_upload.next_chunk()
+            status, response = request_upload.next_chunk()
         return True, response.get('id')
     except Exception as e:
+        traceback.print_exc()
         return False, str(e)
 
-def get_channel_info(creds):
+def publish_video_process(override_settings=None):
     try:
-        credentials = Credentials(**creds)
-        youtube = build('youtube', 'v3', credentials=credentials)
-        res = youtube.channels().list(part='snippet', mine=True).execute()
-        if 'items' in res and len(res['items']) > 0:
-            item = res['items'][0]['snippet']
-            title = item.get('title', 'قناة يوتيوب')
-            thumb = item.get('thumbnails', {}).get('default', {}).get('url', '')
-            return title, thumb
-    except Exception as e:
-        pass
-    return "القناة المرتبطة", ""
+        credentials = get_saved_credentials()
+        if not credentials:
+            return False, "يرجى ربط قناة يوتيوب أولاً!"
 
-st.set_page_config(page_title="موقع السعد للقرآن الكريم", page_icon="📖", layout="centered")
-
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    html, body, [class*="css"]  {
-        direction: RTL;
-        text-align: right;
-        font-family: 'Cairo', sans-serif;
-    }
-    div[data-baseweb="select"] {
-        direction: RTL;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #10b981;
-        color: white;
-        font-weight: bold;
-        border-radius: 8px;
-        padding: 12px;
-        font-size: 16px;
-    }
-    .channel-card {
-        background-color: #0f172a;
-        border: 2px solid #10b981;
-        border-radius: 12px;
-        padding: 16px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 20px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.title("📖 موقع السعد للقرآن الكريم")
-st.caption("المنصة الذكية لتوليد ونشر فيديوهات القرآن الكريم بجدولة تلقائية على قناتك")
-
-st.markdown("---")
-
-if 'user_creds' not in st.session_state:
-    st.session_state.user_creds = None
-if 'channel_title' not in st.session_state:
-    st.session_state.channel_title = ""
-if 'channel_thumb' not in st.session_state:
-    st.session_state.channel_thumb = ""
-if 'surah' not in st.session_state:
-    st.session_state.surah = 1
-if 'ayah' not in st.session_state:
-    st.session_state.ayah = 1
-
-st.header("🔗 ربط القناة الشخصية (Google OAuth)")
-
-if st.session_state.user_creds:
-    st.markdown(f"""
-        <div class="channel-card">
-            <img src="{st.session_state.channel_thumb}" style="width:65px;height:65px;border-radius:50%;" alt="Avatar"/>
-            <div>
-                <h4 style="margin:0;color:#10b981;">✅ تم ربط القناة بنجاح</h4>
-                <p style="margin:6px 0 0 0;font-size:18px;font-weight:bold;color:#f8fafc;">{st.session_state.channel_title}</p>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("❌ إلغاء ربط القناة / تسجيل الخروج"):
-        st.session_state.user_creds = None
-        st.session_state.channel_title = ""
-        st.session_state.channel_thumb = ""
-        st.rerun()
-else:
-    flow = Flow.from_client_config(
-        {"web": {
-            "client_id": CLIENT_ID, 
-            "client_secret": CLIENT_SECRET, 
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth", 
-            "token_uri": "https://oauth2.googleapis.com/token"
-        }},
-        scopes=SCOPES, redirect_uri=REDIRECT_URI
-    )
-    auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
-    
-    st.markdown(f'<a href="{auth_url}" target="_blank" style="display:block;text-align:center;padding:14px 20px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:17px;">1️⃣ اضغط هنا لتسجيل الدخول وربط قناتك بـ Google</a>', unsafe_allow_html=True)
-    
-    st.write("")
-    input_code = st.text_input("2️⃣ انسخ الرابط كاملاً من شريط العنوان بعد تسجيل الدخول وألصقه هنا:")
-    
-    if st.button("3️⃣ تأكيد وربط القناة"):
-        if input_code.strip():
-            try:
-                raw_input = input_code.strip()
-                code_clean = ""
-                
-                # استخراج الـ code باحترافية سواء نسخت الرابط كاملاً أو الكود فقط
-                if "code=" in raw_input:
-                    after_code = raw_input.split("code=")[1]
-                    code_clean = after_code.split("&")[0]
-                else:
-                    code_clean = raw_input
-                
-                if not code_clean or code_clean.startswith("&") or "scope" in code_clean:
-                    st.error("⚠️ يرجى التأكد من نسخ الرابط الكامل الذي يحتوي على `code=` وليس جزء الـ scope.")
-                else:
-                    flow.fetch_token(code=code_clean)
-                    credentials = flow.credentials
-                    
-                    creds_dict = {
-                        'token': credentials.token, 'refresh_token': credentials.refresh_token,
-                        'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
-                        'client_secret': credentials.client_secret, 'scopes': credentials.scopes
-                    }
-                    st.session_state.user_creds = creds_dict
-                    
-                    c_title, c_thumb = get_channel_info(creds_dict)
-                    st.session_state.channel_title = c_title
-                    st.session_state.channel_thumb = c_thumb
-                    st.success(f"تم ربط القناة بنجاح: {c_title}")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"خطأ: الكود مستخدم سابقاً أو منتهي الصلاحية. اضغط على الزر الأزرق (1) مجدداً، سجل دخول جديد، ونسخ الرابط الجديد كاملاً.")
-        else:
-            st.warning("يرجى إدخال الرابط أولاً.")
-
-st.markdown("---")
-
-st.header("⚙️ إعدادات التوليد والنشر")
-
-col1, col2 = st.columns(2)
-with col1:
-    selected_reciter_name = st.selectbox("اختر القارئ المطلوب:", list(RECITERS.keys()))
-    selected_reciter_folder = RECITERS[selected_reciter_name]
-with col2:
-    v_type = st.selectbox("نوع الفيديو المراد نشره:", ["short", "long", "both"], format_func=lambda x: "فيديو قصير (Shorts)" if x=="short" else ("فيديو طويل فقط" if x=="long" else "طويل وقصير معاً"))
-
-col_dur1, col_dur2 = st.columns(2)
-with col_dur1:
-    l_dur = st.selectbox("مدة الفيديو الطويل (دقائق):", [10, 30, 60])
-with col_dur2:
-    s_dur = st.selectbox("مدة الفيديو القصير (ثواني):", [30, 50])
-
-if st.button("⚡ توليد ونشر فيديو الآن"):
-    if not st.session_state.user_creds:
-        st.error("يرجى ربط قناتك أولاً قبل بدء التوليد!")
-    else:
-        st.info("جاري سحب الصوتيات وتوليد الفيديو ونشره على قناتك، يرجى الانتظار...")
-        session_id = str(random.randint(1000, 9999))
+        settings = override_settings if override_settings else load_json(SETTINGS_FILE, {
+            "type": "short",
+            "short_duration": 30,
+            "long_duration": 10,
+            "daily_count": 1,
+            "schedule_time": "18:00",
+            "watermark": True
+        })
         
-        cur_surah = st.session_state.surah
-        cur_ayah = st.session_state.ayah
+        state = load_json(STATE_FILE, {"surah": 1, "ayah": 1, "reciter_index": 0})
+        current_surah = state.get("surah", 1)
+        current_ayah = state.get("ayah", 1)
+        reciter_index = state.get("reciter_index", 0)
+
+        current_reciter = RECITERS[reciter_index % len(RECITERS)]
+        pub_type = settings.get("type", "short")
+        short_dur = int(settings.get("short_duration", 30))
+        long_dur = int(settings.get("long_duration", 10))
+        show_watermark = settings.get("watermark", True)
+        daily_count = int(settings.get("daily_count", 1))
+
         results_msg = []
 
-        if v_type in ["short", "both"]:
-            success_s, res_data_s, _, v_path_s = generate_quran_video(cur_surah, cur_ayah, 3, True, s_dur, True, selected_reciter_name, selected_reciter_folder, session_id)
-            if success_s:
-                surah_name, consumed_s = res_data_s
-                ok, video_id = upload_single_video(st.session_state.user_creds, v_path_s, f"تلاوة خاشعة - {surah_name} #Shorts", f"تلاوة مباركة بصوت {selected_reciter_name}")
-                if ok:
-                    results_msg.append(f"تم نشر Shorts (ID: {video_id})")
-                    cur_ayah += consumed_s
+        for loop_idx in range(daily_count):
+            _, total_surah_ayahs = get_surah_info(current_surah)
+            if current_ayah > total_surah_ayahs:
+                current_surah += 1
+                current_ayah = 1
 
-        if v_type in ["long", "both"]:
-            success_l, res_data_l, _, v_path_l = generate_quran_video(cur_surah, cur_ayah, 8, False, l_dur, True, selected_reciter_name, selected_reciter_folder, session_id)
-            if success_l:
-                surah_name, consumed_l = res_data_l
-                ok, video_id = upload_single_video(st.session_state.user_creds, v_path_l, f"تلاوة خاشعة سورة {surah_name}", f"تلاوة مباركة بصوت {selected_reciter_name}")
-                if ok:
-                    results_msg.append(f"تم نشر الفيديو الطويل (ID: {video_id})")
-                    cur_ayah += consumed_l
+            if pub_type in ["short", "both"]:
+                num_ayahs_s = 3
+                success_s, res_data_s, _ = generate_quran_video(current_surah, current_ayah, num_ayahs_s, True, short_dur, show_watermark, current_reciter, "output_short.mp4")
+                if success_s:
+                    surah_name, consumed_s = res_data_s
+                    title_s = f"تلاوة خاشعة - {surah_name} بصوت {current_reciter['name']} #Shorts #القرآن_الكريم"
+                    desc_s = f"تلاوة هادئة ومباركة من الذكر الحكيم ({surah_name}) بصوت القارئ {current_reciter['name']}.\n\n#القرآن_الكريم #shorts #quran #تلاوات_خاشعة #موقع_السعد"
+                    ok, res_id = upload_single_video("output_short.mp4", title_s, desc_s)
+                    if ok:
+                        results_msg.append(f"الفيديو القصير #{loop_idx+1}")
+                        current_ayah += consumed_s
+                    else:
+                        return False, f"فشل رفع الشورتس: {res_id}"
+                else:
+                    return False, f"فشل توليد الفيديو القصير: {res_data_s}"
+
+            if pub_type in ["long", "both"]:
+                _, total_surah_ayahs = get_surah_info(current_surah)
+                if current_ayah > total_surah_ayahs:
+                    current_surah += 1
+                    current_ayah = 1
+
+                num_ayahs_l = 8
+                success_l, res_data_l, _ = generate_quran_video(current_surah, current_ayah, num_ayahs_l, False, long_dur, show_watermark, current_reciter, "output_long.mp4")
+                if success_l:
+                    surah_name, consumed_l = res_data_l
+                    title_l = f"تلاوة هادئة ومباركة - {surah_name} بصوت {current_reciter['name']}"
+                    desc_l = f"تلاوة عطرة خاشعة من آيات الذكر الحكيم ({surah_name}) بصوت القارئ {current_reciter['name']}.\n\n#القرآن_الكريم #تلاوات #Quran #موقع_السعد"
+                    ok, res_id = upload_single_video("output_long.mp4", title_l, desc_l)
+                    if ok:
+                        results_msg.append(f"الفيديو الطويل #{loop_idx+1}")
+                        current_ayah += consumed_l
+                    else:
+                        return False, f"فشل رفع الفيديو الطويل: {res_id}"
+                else:
+                    return False, f"فشل توليد الفيديو الطويل: {res_data_l}"
+
+        save_json(STATE_FILE, {"surah": current_surah, "ayah": current_ayah, "reciter_index": reciter_index + 1})
 
         if results_msg:
-            st.success(" 🎉 " + " | ".join(results_msg))
-            st.session_state.ayah = cur_ayah
+            return True, "تم بنجاح توليد ونشر: " + " - ".join(results_msg) + f" بصوت ({current_reciter['name']})!"
         else:
-            st.error("حدث خطأ أثناء عملية التوليد أو النشر.")
+            return False, "حدث خطأ أثناء النشر!"
+    except Exception as e:
+        traceback.print_exc()
+        return False, str(e)
 
-st.markdown("---")
+def background_scheduler():
+    last_published_minute = ""
+    while True:
+        try:
+            settings = load_json(SETTINGS_FILE, None)
+            if settings and settings.get("schedule_time"):
+                now = datetime.now().strftime("%H:%M")
+                if now == settings.get("schedule_time") and now != last_published_minute:
+                    publish_video_process()
+                    last_published_minute = now
+        except:
+            pass
+        time.sleep(30)
 
-st.header("🕒 الجدولة والنشر التلقائي اليومي")
+scheduler_thread = threading.Thread(target=background_scheduler, daemon=True)
+scheduler_thread.start()
 
-enable_schedule = st.checkbox("تفعيل نظام الجدولة اليومي الآلي")
+@app.route('/')
+def index():
+    if os.path.exists('index.html'):
+        with open('index.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    return "ملف index.html غير موجود!"
 
-if enable_schedule:
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        schedule_time = st.time_input("حدد موعد النشر اليومي:", datetime.time(17, 0))
-    with sc2:
-        daily_count = st.number_input("عدد الفيديوهات يومياً:", min_value=1, max_value=5, value=1)
-    
-    st.success(f"الجدولة نشطة! سيتم نشر {daily_count} فيديو يومياً الساعة {schedule_time.strftime('%H:%M')}.")
-    
-    if st.button("🚀 تشغيل الجدولة أونلاين"):
-        if not st.session_state.user_creds:
-            st.error("يرجى ربط قناتك أولاً قبل بدء الجدولة!")
-        else:
-            st.warning("⚠️ لا تغلق هذه الصفحة للحفاظ على استمرار النشر المجدول.")
-            status_text = st.empty()
-            
-            while True:
-                now = datetime.datetime.now()
-                target_today = datetime.datetime.combine(now.date(), schedule_time)
-                if now > target_today:
-                    target_today += datetime.timedelta(days=1)
-                
-                time_diff = (target_today - now).total_seconds()
-                status_text.info(f"⏳ موعد النشر القادم: {target_today.strftime('%Y-%m-%d %H:%M:%S')} (متبقي {int(time_diff // 3600)} ساعة و {int((time_diff % 3600) // 60)} دقيقة)")
-                
-                if time_diff > 60:
-                    time.sleep(60)
-                else:
-                    time.sleep(max(1, time_diff))
-                    status_text.success("⚡ حان وقت النشر المجدول! جاري العمل...")
-                    
-                    for idx in range(daily_count):
-                        session_id = str(random.randint(1000, 9999))
-                        c_surah = st.session_state.surah
-                        c_ayah = st.session_state.ayah
-                        
-                        s_ok, res_data, _, v_path = generate_quran_video(c_surah, c_ayah, 3, True, s_dur, True, selected_reciter_name, selected_reciter_folder, session_id)
-                        if s_ok:
-                            s_name, consumed = res_data
-                            upload_single_video(st.session_state.user_creds, v_path, f"تلاوة خاشعة - {s_name} #Shorts", f"تلاوة مباركة بصوت {selected_reciter_name}")
-                            st.session_state.ayah += consumed
-                    
-                    st.success("✅ اكتمل النشر المجدول اليوم بنجاح!")
-                    time.sleep(120)
+@app.route('/auth/google')
+def auth_google():
+    client_config = {
+        "web": {
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [REDIRECT_URI]
+        }
+    }
+    flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
+    authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
+    session['state'] = state
+    session['code_verifier'] = flow.code_verifier
+    return redirect(authorization_url)
+
+@app.route('/oauth2callback')
+def oauth2callback():
+    state = session.get('state')
+    code_verifier = session.get('code_verifier')
+    client_config = {
+        "web": {
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [REDIRECT_URI]
+        }
+    }
+    flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state, redirect_uri=REDIRECT_URI)
+    if code_verifier:
+        flow.code_verifier = code_verifier
+    flow.fetch_token(authorization_response=request.url)
+    credentials = flow.credentials
+    creds_data = {
+        'token': credentials.token,
+        'refresh_token': credentials.refresh_token,
+        'token_uri': credentials.token_uri,
+        'client_id': credentials.client_id,
+        'client_secret': credentials.client_secret,
+        'scopes': credentials.scopes
+    }
+    save_json(TOKEN_FILE, creds_data)
+    return redirect('http://localhost:5000/')
+
+@app.route('/api/user_info', methods=['GET'])
+def user_info():
+    credentials = get_saved_credentials()
+    if not credentials:
+        return jsonify({"connected": False})
+    try:
+        youtube = build('youtube', 'v3', credentials=credentials)
+        response = youtube.channels().list(mine=True, part='snippet').execute()
+        if response.get('items'):
+            title = response['items'][0]['snippet']['title']
+            return jsonify({"connected": True, "channel_title": title})
+    except:
+        pass
+    return jsonify({"connected": False})
+
+@app.route('/api/save_settings', methods=['POST'])
+def save_settings_data():
+    data = request.json or {}
+    save_json(SETTINGS_FILE, data)
+    return jsonify({"status": "success", "message": "تم حفظ الإعدادات بنجاح!"})
+
+@app.route('/api/test_publish', methods=['POST'])
+def test_publish():
+    data = request.json or {}
+    save_json(SETTINGS_FILE, data)
+    success, msg = publish_video_process(override_settings=data)
+    if success:
+        return jsonify({"status": "success", "message": "تم الحفظ والتوليد والنشر الفوري بدقة بنجاح!"})
+    else:
+        return jsonify({"error": msg}), 400
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)

@@ -18,9 +18,11 @@ from bidi.algorithm import get_display
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
+# بيانات Google Cloud
 CLIENT_ID = '655750280827-ucv3jdsh0c8t515gd3ennafgvtj00a1l.apps.googleusercontent.com'
 CLIENT_SECRET = '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'
 SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+# استخدام redirect_uri المخصص للربط المستقر
 REDIRECT_URI = "https://quran-video-app-4nhpdndsvuas3yjbv4jhsj.streamlit.app/"
 
 RECITERS = [
@@ -185,11 +187,11 @@ def get_channel_info(creds):
             title = item.get('title', 'قناة يوتيوب')
             thumb = item.get('thumbnails', {}).get('default', {}).get('url', '')
             return title, thumb
-    except:
+    except Exception as e:
         pass
     return "القناة المرتبطة", ""
 
-# ----------------- إعداد الصفحة والتصميم -----------------
+# ----------------- إعداد الصفحة الواجهة -----------------
 
 st.set_page_config(page_title="موقع السعد للقرآن الكريم", page_icon="📖", layout="centered")
 
@@ -226,11 +228,11 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("📖 موقع السعد للقرآن الكريم")
-st.caption("منصة لكل زائر لتوليد ونشر فيديوهات القرآن الكريم تلقائياً وجدولتها على قناته الخاصّة")
+st.caption("منصة لتوليد ونشر فيديوهات القرآن الكريم تلقائياً وجدولتها على قناتك الخاصّة")
 
 st.markdown("---")
 
-# تهيئة متطلبات الجلسة للمستخدم
+# إدارة الجلسة للمستخدم
 if 'user_creds' not in st.session_state:
     st.session_state.user_creds = None
 if 'channel_title' not in st.session_state:
@@ -245,62 +247,28 @@ if 'ayah' not in st.session_state:
 if 'reciter_index' not in st.session_state:
     st.session_state.reciter_index = 0
 
-# ----------------- المعالجة الآمنة لالتقاط Code ومسحه من الرابط -----------------
+# ----------------- قسم ربط القناة بـ OAuth المضمون -----------------
 
-query_params = st.query_params
-if 'code' in query_params and not st.session_state.user_creds:
-    auth_code = query_params['code']
-    try:
-        flow = Flow.from_client_config(
-            {"web": {
-                "client_id": CLIENT_ID, 
-                "client_secret": CLIENT_SECRET, 
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth", 
-                "token_uri": "https://oauth2.googleapis.com/token"
-            }},
-            scopes=SCOPES, redirect_uri=REDIRECT_URI
-        )
-        flow.fetch_token(code=auth_code)
-        credentials = flow.credentials
-        
-        creds_dict = {
-            'token': credentials.token, 'refresh_token': credentials.refresh_token,
-            'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
-            'client_secret': credentials.client_secret, 'scopes': credentials.scopes
-        }
-        st.session_state.user_creds = creds_dict
-        
-        c_title, c_thumb = get_channel_info(creds_dict)
-        st.session_state.channel_title = c_title
-        st.session_state.channel_thumb = c_thumb
-    except Exception:
-        pass
-    finally:
-        # مسح الكود من شريط العنوان فوراً لتفادي إعادة القراءة
-        st.query_params.clear()
-
-# ----------------- قسم عرض/ربط القناة -----------------
-
-st.header("🔗 ربط القناة بـ Google OAuth")
+st.header("🔗 ربط القناة (Google OAuth)")
 
 if st.session_state.user_creds:
     st.markdown(f"""
         <div class="channel-box">
             <img src="{st.session_state.channel_thumb}" style="width:60px;height:60px;border-radius:50%;" alt="Avatar"/>
             <div>
-                <h4 style="margin:0;color:#10b981;">✅ القناة مرتبطة بنجاح</h4>
+                <h4 style="margin:0;color:#10b981;">✅ تم ربط القناة بنجاح</h4>
                 <p style="margin:5px 0 0 0;font-size:16px;font-weight:bold;">{st.session_state.channel_title}</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
     
-    if st.button("❌ إلغاء ربط القناة / تسجيل الخروج"):
+    if st.button("❌ إلغاء الربط / تسجيل الخروج"):
         st.session_state.user_creds = None
         st.session_state.channel_title = ""
         st.session_state.channel_thumb = ""
         st.rerun()
 else:
-    st.warning("⚠️ لم تقم بربط قناتك بعد. اضغط على الزر أدناه لربط قناتك مباشرة.")
+    st.info("💡 اضغط على الزر أدناه لتسجيل الدخول بـ Google، ثم انسخ الكود والطبقه هنا:")
     
     flow = Flow.from_client_config(
         {"web": {
@@ -313,15 +281,44 @@ else:
     )
     auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
     
-    st.markdown(f'<a href="{auth_url}" target="_self" style="display:block;text-align:center;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">اضغط هنا لتسجيل الدخول وربط قناتك تلقائياً</a>', unsafe_allow_html=True)
+    st.markdown(f'<a href="{auth_url}" target="_blank" style="display:block;text-align:center;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">1️⃣ اضغط هنا لفتح شاشة تسجيل الدخول بـ Google</a>', unsafe_allow_html=True)
     
-    st.caption("ملاحظة: إذا ظهر لك تحذير من جوجل (Unverified app)، اضغط على خيارات متقدمة (Advanced) ثم اختيار الانتقال إلى التطبيق (Go to app).")
+    st.write("")
+    user_code = st.text_input("2️⃣ ألصق كود/رمز التوثيق المنسوخ من شريط العناوين أو شاشة جوجل هنا:")
+    
+    if st.button("3️⃣ تأكيد وربط القناة الآن"):
+        if user_code.strip():
+            try:
+                # تنظيف الكود إذا أطرافه بها مساحات
+                clean_code = user_code.strip()
+                if "code=" in clean_code:
+                    clean_code = clean_code.split("code=")[1].split("&")[0]
+                
+                flow.fetch_token(code=clean_code)
+                credentials = flow.credentials
+                
+                creds_dict = {
+                    'token': credentials.token, 'refresh_token': credentials.refresh_token,
+                    'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
+                    'client_secret': credentials.client_secret, 'scopes': credentials.scopes
+                }
+                st.session_state.user_creds = creds_dict
+                
+                c_title, c_thumb = get_channel_info(creds_dict)
+                st.session_state.channel_title = c_title
+                st.session_state.channel_thumb = c_thumb
+                st.success(f"تم ربط القناة بنجاح: {c_title}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"الكود غير صحيح أو انتهت صلاحيته. يُرجى الضغط على زر الدخول مجدداً ونسخ الكود الجديد. التفاصيل: {e}")
+        else:
+            st.warning("يرجى إدخال الكود أولاً.")
 
 st.markdown("---")
 
-# ----------------- قسم إعدادات توليد الفيديو -----------------
+# ----------------- قسم إعدادات وتوليد الفيديو -----------------
 
-st.header("⚙️ إعدادات توليد الفيديو")
+st.header("⚙️ إعدادات وتوليد الفيديو")
 
 v_type = st.selectbox("نوع الفيديو المراد نشره:", ["short", "long", "both"], format_func=lambda x: "فيديو قصير (Shorts) فقط" if x=="short" else ("فيديو طويل فقط" if x=="long" else "طويل وقصير معاً"))
 l_dur = st.selectbox("مدة الفيديو الطويل (بالدقائق):", [10, 30, 60])
@@ -368,11 +365,11 @@ if st.button("⚡ توليد ونشر فيديو الآن على القناة"):
 
 st.markdown("---")
 
-# ----------------- قسم الجدولة التلقائية والآلية -----------------
+# ----------------- قسم الجدولة النشر التلقائي اليومي -----------------
 
 st.header("🕒 الجدولة والنشر التلقائي اليومي")
 
-enable_schedule = st.checkbox("تفعيل الجدولة التلقائية اليومية لهذه الجلسة")
+enable_schedule = st.checkbox("تفعيل الجدولة التلقائية اليومية")
 
 if enable_schedule:
     schedule_time = st.time_input("حدد وقت النشر اليومي المطلوب:", datetime.time(17, 0))
@@ -384,7 +381,7 @@ if enable_schedule:
         if not st.session_state.user_creds:
             st.error("يرجى ربط القناة أولاً لتشغيل الجدولة!")
         else:
-            st.warning("⚠️ لا تغلق هذه الصفحة لتستمر الجدولة التلقائية أونلاين في العمل.")
+            st.warning("⚠️ ابقِ هذه الصفحة مفتوحة لضمان الاستمرار في التوليد والنشر المجدول.")
             status_text = st.empty()
             
             while True:

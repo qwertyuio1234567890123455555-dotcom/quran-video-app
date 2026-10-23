@@ -16,7 +16,6 @@ import imageio_ffmpeg
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# إعداد البيئة
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 CLIENT_ID = '655750280827-ucv3jdsh0c8t515gd3ennafgvtj00a1l.apps.googleusercontent.com'
@@ -31,8 +30,6 @@ RECITERS = {
     "الشيخ سعود الشريم": "Saood_ash-Shuraym_128kbps",
     "الشيخ ناصر القطامي": "Nasser_Alqatami_128kbps"
 }
-
-# ----------------- وظائف المعالجة والتوليد -----------------
 
 def format_arabic_text(text):
     reshaped_text = arabic_reshaper.reshape(text)
@@ -190,8 +187,6 @@ def get_channel_info(creds):
         pass
     return "القناة المرتبطة", ""
 
-# ----------------- الواجهة الرئيسية والتنسيق -----------------
-
 st.set_page_config(page_title="موقع السعد للقرآن الكريم", page_icon="📖", layout="centered")
 
 st.markdown("""
@@ -232,20 +227,16 @@ st.caption("المنصة الذكية لتوليد ونشر فيديوهات ا�
 
 st.markdown("---")
 
-# إدارة الجلسات المستقلة
 if 'user_creds' not in st.session_state:
     st.session_state.user_creds = None
 if 'channel_title' not in st.session_state:
     st.session_state.channel_title = ""
 if 'channel_thumb' not in st.session_state:
     st.session_state.channel_thumb = ""
-
 if 'surah' not in st.session_state:
     st.session_state.surah = 1
 if 'ayah' not in st.session_state:
     st.session_state.ayah = 1
-
-# ----------------- قسم ربط القناة -----------------
 
 st.header("🔗 ربط القناة الشخصية (Google OAuth)")
 
@@ -266,7 +257,6 @@ if st.session_state.user_creds:
         st.session_state.channel_thumb = ""
         st.rerun()
 else:
-    # إعداد رابط المصادقة المباشر النظيف
     flow = Flow.from_client_config(
         {"web": {
             "client_id": CLIENT_ID, 
@@ -281,47 +271,52 @@ else:
     st.markdown(f'<a href="{auth_url}" target="_blank" style="display:block;text-align:center;padding:14px 20px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:17px;">1️⃣ اضغط هنا لتسجيل الدخول وربط قناتك بـ Google</a>', unsafe_allow_html=True)
     
     st.write("")
-    input_code = st.text_input("2️⃣ انسخ الرابط أو الكود الناتج بعد تسجيل الدخول وألصقه هنا:")
+    input_code = st.text_input("2️⃣ انسخ الرابط كاملاً من شريط العنوان بعد تسجيل الدخول وألصقه هنا:")
     
     if st.button("3️⃣ تأكيد وربط القناة"):
         if input_code.strip():
             try:
-                code_clean = input_code.strip()
-                if "code=" in code_clean:
-                    code_clean = code_clean.split("code=")[1].split("&")[0]
+                raw_input = input_code.strip()
+                code_clean = ""
                 
-                flow.fetch_token(code=code_clean)
-                credentials = flow.credentials
+                # استخراج الـ code باحترافية سواء نسخت الرابط كاملاً أو الكود فقط
+                if "code=" in raw_input:
+                    after_code = raw_input.split("code=")[1]
+                    code_clean = after_code.split("&")[0]
+                else:
+                    code_clean = raw_input
                 
-                creds_dict = {
-                    'token': credentials.token, 'refresh_token': credentials.refresh_token,
-                    'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
-                    'client_secret': credentials.client_secret, 'scopes': credentials.scopes
-                }
-                st.session_state.user_creds = creds_dict
-                
-                c_title, c_thumb = get_channel_info(creds_dict)
-                st.session_state.channel_title = c_title
-                st.session_state.channel_thumb = c_thumb
-                st.success(f"تم ربط القناة بنجاح: {c_title}")
-                st.rerun()
+                if not code_clean or code_clean.startswith("&") or "scope" in code_clean:
+                    st.error("⚠️ يرجى التأكد من نسخ الرابط الكامل الذي يحتوي على `code=` وليس جزء الـ scope.")
+                else:
+                    flow.fetch_token(code=code_clean)
+                    credentials = flow.credentials
+                    
+                    creds_dict = {
+                        'token': credentials.token, 'refresh_token': credentials.refresh_token,
+                        'token_uri': credentials.token_uri, 'client_id': credentials.client_id,
+                        'client_secret': credentials.client_secret, 'scopes': credentials.scopes
+                    }
+                    st.session_state.user_creds = creds_dict
+                    
+                    c_title, c_thumb = get_channel_info(creds_dict)
+                    st.session_state.channel_title = c_title
+                    st.session_state.channel_thumb = c_thumb
+                    st.success(f"تم ربط القناة بنجاح: {c_title}")
+                    st.rerun()
             except Exception as e:
-                st.error("الكود المنسوخ مستخدم سابقاً أو غير صحيح. اضغط على الزر الأزرق مجدداً وانسخ الرابط الجديد.")
+                st.error(f"خطأ: الكود مستخدم سابقاً أو منتهي الصلاحية. اضغط على الزر الأزرق (1) مجدداً، سجل دخول جديد، ونسخ الرابط الجديد كاملاً.")
         else:
-            st.warning("يرجى إدخال الكود أولاً.")
+            st.warning("يرجى إدخال الرابط أولاً.")
 
 st.markdown("---")
-
-# ----------------- قسم إعدادات التوليد والنشر -----------------
 
 st.header("⚙️ إعدادات التوليد والنشر")
 
 col1, col2 = st.columns(2)
-
 with col1:
     selected_reciter_name = st.selectbox("اختر القارئ المطلوب:", list(RECITERS.keys()))
     selected_reciter_folder = RECITERS[selected_reciter_name]
-    
 with col2:
     v_type = st.selectbox("نوع الفيديو المراد نشره:", ["short", "long", "both"], format_func=lambda x: "فيديو قصير (Shorts)" if x=="short" else ("فيديو طويل فقط" if x=="long" else "طويل وقصير معاً"))
 
@@ -367,8 +362,6 @@ if st.button("⚡ توليد ونشر فيديو الآن"):
             st.error("حدث خطأ أثناء عملية التوليد أو النشر.")
 
 st.markdown("---")
-
-# ----------------- قسم الجدولة التلقائية -----------------
 
 st.header("🕒 الجدولة والنشر التلقائي اليومي")
 

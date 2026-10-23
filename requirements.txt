@@ -1,8 +1,9 @@
 streamlit
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
 requests
-Pillow
+pillow
 imageio-ffmpeg
 arabic-reshaper
 python-bidi
-google-auth-oauthlib
-google-api-python-client
